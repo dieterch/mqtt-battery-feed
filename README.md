@@ -1,6 +1,4 @@
 # mqtt-battery-feed
-to be used on venus os from Victron Energy.
-
 feeds voltage & temperature data collected by a shelly UNI device to 
 https://github.com/mr-manuel/venus-os_dbus-mqtt-battery/tree/master/dbus-mqtt-battery
 
