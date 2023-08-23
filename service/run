@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "*** starting mqtt-battery-feed ***"
+exec 2>&1
+exec /data/etc/mqtt-battery-feed/mqtt-battery-feed.py
