@@ -10,7 +10,8 @@ import requests
 import threading
 import time
 
-logging.basicConfig(level=logging.WARNING)
+#logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.INFO)
 
 VRM_Interval = 30
 AVG_Interval = 5
