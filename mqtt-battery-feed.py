@@ -10,13 +10,14 @@ import requests
 import threading
 import time
 
-#logging.basicConfig(level=logging.WARNING)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 
 VRM_Interval = 30
 AVG_Interval = 5
 current = 0.014
 DATAIP = '192.168.12.20'
+ErrValue = -1.0
+SOCMode = 2
 
 logging.info(f"Start, VRM_Interval={VRM_Interval}sec, AVG_Interval={AVG_Interval}sec, current estimation={current}A, DATAIP={DATAIP}")
 
@@ -28,21 +29,17 @@ def SOC(mode,x):
             return 0.0
     fitpar = {
         # 0. Resting, No discharge or charging
-        0: [-159.95112679,  -35.66088984,    4.3840393 ], 
+        0: [-159.95112679,  -35.66088984,    4.3840393 ],
         # 1. Discharging only
-        1: [-7.99285673e+02,  7.14285645e+01,  2.90284783e-07], 
+        1: [-7.99285673e+02,  7.14285645e+01,  2.90284783e-07],
         # 2. Charging 100% more than disccharge
-        2: [-2065.96791137,   266.26220213,    -7.78670988], 
-        # 3. Charging, no discharge
+        # 2: [-2065.96791137,   266.26220213,    -7.78670988],
+        2: [1319.88515558, -286.95495698,   14.80478566],
+	# 3. Charging, no discharge
         3: [-1271.8876316 ,   129.48610013,    -2.17261896]
     }
     val = func(x,*fitpar[mode])
-    
-    if val < 10.0:
-        val = 0.0
-    elif val > 100.0:
-        val = 100.0
-        
+    val = 10.0 if val < 10.0 else 100.0 if val > 100.0 else val
     return val
 
 class DataAverage:
@@ -74,11 +71,11 @@ class DataAverage:
                     logging.warning(f"Failed to fetch data. HTTP Status Code: {response.status_code}")
                     retries += 1
             except requests.RequestException as e:
-                logging.warning(f"Error fetching data from {DATAIP}, Connection failed. retry {retries}")
+                #logging.warning(f"Error fetching data from {DATAIP}, Connection failed. retry {retries}")
                 retries += 1
             time.sleep(1)  # wait for 1 second before retrying
-        
-        logging.warning("Max retries reached. Unable to fetch data.")
+
+        logging.warning(f"Max retries reached. Unable to fetch data from {DATAIP}.")
         return None, None
 
     def moving_average(self):
@@ -86,22 +83,22 @@ class DataAverage:
             # voltage
             voltage, temperature = self.fetch_data()
             if voltage is None:
-                logging.warning('Voltage is None! => setting voltage to 99.0')
+                logging.info(f'Voltage is None! => setting voltage to {ErrValue}')
                 self.voltage_buffer.clear()
-                voltage = 99.0
-                
+                voltage = ErrValue
+
             if voltage is not None:
                 self.voltage_buffer.append(voltage)
 
             if len(self.voltage_buffer) > 0:
                 self.current_voltage_avg = sum(self.voltage_buffer) / len(self.voltage_buffer)
-                
+
             # temperature
             if temperature is None:
-                logging.warning('Temperature is None! => setting temperature to 99.0')
+                logging.info('Temperature is None! => setting temperature to {ErrValue}')
                 self.temperature_buffer.clear()
-                temperature = 99.0
-                
+                temperature = ErrValue
+
             if temperature is not None:
                 self.temperature_buffer.append(temperature)
 
@@ -119,7 +116,7 @@ class DataAverage:
 
     def get_voltage_average(self):
         return self.current_voltage_avg
-    
+
     def get_temperature_average(self):
         return self.current_temperature_avg
 
@@ -129,7 +126,7 @@ data_avg = DataAverage(interval=AVG_Interval)
 # Start the voltage fetch and averaging in background ...
 data_avg.start()
 
-broker_address="venus.local" 
+broker_address="venus.local"
 client = mqtt.Client("P1") #create new instance
 
 voltage = 0.0
@@ -144,26 +141,24 @@ try:
             client = mqtt.Client("P1") #create new instance if connection fails ...
             time.sleep(5) # wait
         client.connect(broker_address)
-        soc = SOC(1,voltage)
-        voltage = voltage or 99.0
-        temperature = temperature or 99.0
+        soc = SOC(SOCMode,voltage)
+        voltage = voltage or ErrValue
+        temperature = temperature or ErrValue
         power = current * voltage
-        data = { 
-            "Dc": { 
-                "Power": power, 
+        data = {
+            "Dc": {
+                "Power": power,
                 "Voltage": voltage,
-                "Temperature": temperature   
+                "Temperature": temperature
             },
-            "InstalledCapacity": 95.0, 
+            "InstalledCapacity": 95.0,
             "Soc": soc
         }
         logging.info(f"datetime: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}, Current: {current:0.3f}A, Power: {power:.3f}W, Voltage: {voltage:.2f}V, Temperature: {temperature:.1f}°C, SOC: {soc:3.0f}%")
         client.publish("enphase/battery",json.dumps(data)) #push to local mqtt
 
-            
+
 except KeyboardInterrupt:
     # Stop fetching and averaging when user interrupts (e.g., Ctrl+C)
     logging.info('Quitting.')
     data_avg.stop()
-    
-   
